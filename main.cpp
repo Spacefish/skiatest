@@ -12,16 +12,16 @@
 #include "include/gpu/vk/VulkanBackendContext.h"
 #include "include/gpu/vk/VulkanExtensions.h"
 #include "include/gpu/vk/VulkanPreferredFeatures.h"
-#include "include/gpu/vk/VulkanMemoryAllocator.h"
 
-GrDirectContext* sContext = nullptr;
-SkSurface* sSurface = nullptr;
+sk_sp<GrDirectContext> sContext = nullptr;
+sk_sp<SkSurface> sSurface = nullptr;
 
 
 void draw() {
     SkCanvas* canvas = sSurface->getCanvas();
     canvas->clear(SK_ColorBLUE);  // Fill blue
-    sContext->flush();
+    sContext->flush(sSurface.get());
+    sContext->submit();  // Submit the drawing commands
 }
 
 int main() {
@@ -233,7 +233,7 @@ int main() {
     backendContext.fPhysicalDevice = physicalDevice;
     backendContext.fDevice = device;
     backendContext.fQueue = graphicsQueue;
-    backendContext.fGraphicsQueueIndex = 0; // Default queue index
+    backendContext.fGraphicsQueueIndex = graphicsQueueFamilyIndex; // Default queue index
     backendContext.fMaxAPIVersion = VK_API_VERSION_1_2;
     backendContext.fDeviceFeatures2 = &features;
     backendContext.fGetProc = [](const char* proc_name, VkInstance instance, VkDevice device) {
@@ -249,20 +249,27 @@ int main() {
                       requiredInstanceExtensions.size(), requiredInstanceExtensions.data(),
                       requiredDeviceExtensions.size(), requiredDeviceExtensions.data());
     backendContext.fVkExtensions = &vkExtensions;
+    backendContext.fProtectedContext = skgpu::Protected(false);
 
-    sContext = GrDirectContexts::MakeVulkan(backendContext).release();
+    sContext = GrDirectContexts::MakeVulkan(backendContext);
     if (!sContext) {
         fprintf(stderr, "Failed to create Skia Vulkan context\n");
         return -1;
     }
+    printf("Skia Vulkan context created successfully\n");
 
+    SkImageInfo imageInfo = SkImageInfo::Make(16, 16, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+    sSurface = SkSurfaces::RenderTarget(sContext.get(), skgpu::Budgeted::kYes, imageInfo);
+    
     while (!glfwWindowShouldClose(window)) {
         draw();
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
-    delete sSurface;
-    delete sContext;
+
+
+    sSurface.reset();
+    sContext.reset();
     glfwTerminate();
     return 0;
 }
