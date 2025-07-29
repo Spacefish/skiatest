@@ -12,6 +12,11 @@
 #include "include/gpu/vk/VulkanBackendContext.h"
 #include "include/gpu/vk/VulkanExtensions.h"
 #include "include/gpu/vk/VulkanPreferredFeatures.h"
+#include "include/core/SkData.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkSurface.h"
+#include "include/encode/SkPngEncoder.h"
 
 sk_sp<GrDirectContext> sContext = nullptr;
 sk_sp<SkSurface> sSurface = nullptr;
@@ -22,6 +27,10 @@ void draw() {
     canvas->clear(SK_ColorBLUE);  // Fill blue
     sContext->flush(sSurface.get());
     sContext->submit();  // Submit the drawing commands
+    sk_sp<SkImage> img(sSurface->makeImageSnapshot());
+    SkFILEWStream out("out.png");
+    sk_sp<SkData> png = SkPngEncoder::Encode(sContext.get(), img.get(), {});
+    out.write(png->data(), png->size());
 }
 
 int main() {
@@ -258,12 +267,17 @@ int main() {
     }
     printf("Skia Vulkan context created successfully\n");
 
-    SkImageInfo imageInfo = SkImageInfo::Make(16, 16, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+    SkImageInfo imageInfo = SkImageInfo::Make(640, 480, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     sSurface = SkSurfaces::RenderTarget(sContext.get(), skgpu::Budgeted::kYes, imageInfo);
-    
+
+
+    // sSurface = SkSurfaces::WrapBackendRenderTarget(sContext.get(), renderTarget);
+
     while (!glfwWindowShouldClose(window)) {
         draw();
-        glfwSwapBuffers(window);
+        
+        // not relevant for Vulkan as we need to use our own swapchain via vkQueuePresentKHR
+        // glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
