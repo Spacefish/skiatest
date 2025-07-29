@@ -25,18 +25,13 @@ void draw() {
 }
 
 int main() {
-    std::unique_ptr<skgpu::VulkanExtensions> skiaExtensions(new skgpu::VulkanExtensions());
-
-    
-    skiaExtensions->dump(); // Print available Vulkan extensions
-
     if (!glfwInit()) {
-        fprintf(stderr, "Failed to initialize GLFW\n");
+        fprintf(stderr, "Failed to initialize glfw\n");
         return -1;
     }
     if (glfwVulkanSupported() == GLFW_FALSE)
     {
-        fprintf(stderr, "Vulkan not supported\n");
+        fprintf(stderr, "glfw does not support Vulkan\n");
         return -1;
     }
 
@@ -54,11 +49,12 @@ int main() {
     std::vector<VkExtensionProperties> instanceExtensions(instanceExtensionCount);
     vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, instanceExtensions.data());
 
-    printf("Found %d Vulkan instance extensions\n", instanceExtensionCount);
+    printf("Found %d supported Vulkan instance extensions\n", instanceExtensionCount);
     for (uint32_t i = 0; i < instanceExtensionCount; ++i) {
         printf("  %s\n", instanceExtensions[i].extensionName);
     }
     
+    std::vector<const char*> requiredInstanceExtensions = {};
 
     uint32_t glfwExtensionCount = 0;
     const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
@@ -67,18 +63,19 @@ int main() {
     printf("glfw Required Vulkan extensions:\n");
     for (uint32_t i = 0; i < glfwExtensionCount; ++i) {
         printf("  %s\n", glfwExtensions[i]);
+        requiredInstanceExtensions.push_back(glfwExtensions[i]);
     }
     
-    std::unique_ptr<skgpu::VulkanPreferredFeatures> preferredFeatures(new skgpu::VulkanPreferredFeatures());
-    preferredFeatures->init(VK_API_VERSION_1_2);
+    // init skiaFeatures
+    skgpu::VulkanPreferredFeatures skiaFeatures;
+    skiaFeatures.init(VK_API_VERSION_1_3);
 
-    std::vector<const char*> skiaExtensionsList(20);
-    preferredFeatures->addToInstanceExtensions(instanceExtensions.data(), instanceExtensionCount, skiaExtensionsList);
+    skiaFeatures.addToInstanceExtensions(instanceExtensions.data(), instanceExtensionCount, requiredInstanceExtensions);
 
-    // print skiExtensionList to see what Skia adds
-    printf("Skia Vulkan preferred extensions:\n");
-    for (const char* ext : skiaExtensionsList) {
-        printf("  %s\n", ext);
+    // print requiredInstanceExtensions to see what Skia adds
+    printf("Skia required Instance extensions:\n");
+    for (int c = glfwExtensionCount; c < requiredInstanceExtensions.size(); ++c) {
+        printf("  %s\n", requiredInstanceExtensions[c]);
     }
     
     // vkinstance
@@ -89,7 +86,7 @@ int main() {
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "Skia";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.apiVersion = VK_API_VERSION_1_3;
 
     VkInstanceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -117,6 +114,36 @@ int main() {
     vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data());
     physicalDevice = physicalDevices[0]; // Use the first physical device for simplicity
 
+    uint32_t deviceExtensionCount = 0;
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &deviceExtensionCount, nullptr);
+    if (deviceExtensionCount == 0) {
+        fprintf(stderr, "No Vulkan device extensions found\n");
+        return -1;
+    }
+
+    std::vector<VkExtensionProperties> deviceExtensions(deviceExtensionCount);
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &deviceExtensionCount, deviceExtensions.data());
+
+    printf("Found %d supported Vulkan device extensions\n", deviceExtensionCount);
+    for (uint32_t i = 0; i < deviceExtensionCount; ++i) {
+        printf("  %s\n", deviceExtensions[i].extensionName);
+    }
+
+    VkPhysicalDeviceFeatures2 features = {};
+    features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features.pNext = nullptr;
+    skiaFeatures.addFeaturesToQuery(deviceExtensions.data(), deviceExtensionCount, features);
+
+    vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+
+    std::vector<const char*> requiredDeviceExtensions = {};
+
+    skiaFeatures.addFeaturesToEnable(requiredDeviceExtensions, features);
+
+    printf("Skia required Device extensions:\n");
+    for (int c = 0; c < requiredDeviceExtensions.size(); ++c) {
+        printf("  %s\n", requiredDeviceExtensions[c]);
+    }
 
     ///
     // GRAPHICS QUEUE
@@ -151,8 +178,6 @@ int main() {
     float queuePriority = 1.0f;
     queueCreateInfo.pQueuePriorities = &queuePriority;
 
-
-
     ///
     // Logical Device
     //
@@ -162,6 +187,9 @@ int main() {
     deviceCreateInfo.queueCreateInfoCount = 1;
     deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
     deviceCreateInfo.enabledExtensionCount = 0; // No extensions needed for this example
+    deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
+    deviceCreateInfo.pEnabledFeatures = nullptr; // No specific features needed for this example
+    deviceCreateInfo.pNext = &features; // Add the features we queried earlier
     if (vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device) != VK_SUCCESS) {
         fprintf(stderr, "Failed to create Vulkan device\n");
         return -1;
@@ -207,7 +235,20 @@ int main() {
     backendContext.fQueue = graphicsQueue;
     backendContext.fGraphicsQueueIndex = 0; // Default queue index
     backendContext.fMaxAPIVersion = VK_API_VERSION_1_2;
-    
+    backendContext.fDeviceFeatures2 = &features;
+    backendContext.fGetProc = [](const char* proc_name, VkInstance instance, VkDevice device) {
+		if (device != VK_NULL_HANDLE) {
+            printf("GetProcAddr: %s (device)\n", proc_name);
+			return vkGetDeviceProcAddr(device, proc_name);
+		}
+        printf("GetProcAddr: %s (instance)\n", proc_name);
+		return vkGetInstanceProcAddr(instance, proc_name);
+		};
+    skgpu::VulkanExtensions vkExtensions;
+    vkExtensions.init(backendContext.fGetProc, instance, physicalDevice,
+                      requiredInstanceExtensions.size(), requiredInstanceExtensions.data(),
+                      requiredDeviceExtensions.size(), requiredDeviceExtensions.data());
+    backendContext.fVkExtensions = &vkExtensions;
 
     sContext = GrDirectContexts::MakeVulkan(backendContext).release();
     if (!sContext) {
