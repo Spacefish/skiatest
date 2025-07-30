@@ -1,3 +1,4 @@
+#include <chrono>
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #define SK_VULKAN
@@ -39,11 +40,13 @@ std::vector<sk_sp<SkSurface>> skiaSwapChainSurfaces;
 
 double velocity = 0.0;
 double posY = 100.0;
+std::chrono::high_resolution_clock::time_point last_drawcall;
 
 void draw() {
     uint32_t imageIndex;
     VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
 
+    auto start = std::chrono::high_resolution_clock::now();
     if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
         printf("Failed to acquire swapchain image: %d\n", acquire_result);
         return;
@@ -52,9 +55,10 @@ void draw() {
     sk_sp<SkSurface> activeSurface = skiaSwapChainSurfaces[imageIndex];
     
     SkCanvas* canvas = activeSurface->getCanvas();
-    canvas->clear(SK_ColorWHITE); // Clear the canvas with white color
+    canvas->clear(SK_ColorBLACK);
 
-    canvas->drawCircle(100, posY, 50, SkPaint()); // Draw a circle at (100, posY) with radius 50
+    SkColor4f color {(float)std::clamp(std::abs(velocity / 10.0), 0.0, 1.0), 0, 0.35, 1};
+    canvas->drawCircle(100, posY, 50, SkPaint(color)); // Draw a circle at (100, posY) with radius 50
 
     posY += velocity; // Update the position of the circle
     if (posY > 500 || posY < 0) {
@@ -65,6 +69,10 @@ void draw() {
     sContext->flush(activeSurface.get());
     // Submit the drawing commands
     sContext->submit();  
+
+    auto stop = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count();
+    printf("Frame render time: %ld μs\n", duration);
 
     // Present the swapchain image
     VkPresentInfoKHR presentInfo{};
@@ -79,6 +87,11 @@ void draw() {
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to present swapchain image: %d\n", result);
     }
+    // time diff since last draw call
+    auto now = std::chrono::high_resolution_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_drawcall).count();
+    // printf("Draw call took %ld ms\n", elapsed);
+    last_drawcall = now;
 }
 
 int main() {
@@ -325,26 +338,6 @@ int main() {
 
     
     
-    
-    // offline rendering
-    //SkImageInfo imageInfo = SkImageInfo::Make(640, 480, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
-    //sSurface = SkSurfaces::RenderTarget(sContext.get(), skgpu::Budgeted::kYes, imageInfo);
-
-
-    // Create command pool
-    VkCommandPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
-
-    /*
-    if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
-        fprintf(stderr, "Failed to create command pool\n");
-        return -1;
-    }
-    printf("Command pool created successfully\n");
-    */
-
     // CREATE SWAPCHAIN
     // VK_PRESENT_MODE_IMMEDIATE_KHR
 
@@ -402,9 +395,6 @@ int main() {
 
     for(const auto& image : swapChainImages) {
         printf("Swapchain image: %p\n", (void*)image);
-
-        
-        // https://chromium.googlesource.com/external/github.com/flutter/engine/+/refs/heads/flutter-3.11-candidate.12/vulkan/vulkan_swapchain.cc
         
         GrVkImageInfo vkImageInfo{
             .fImage = image,
@@ -446,6 +436,7 @@ int main() {
         }
     }
 
+    last_drawcall = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(window)) {
         draw();
         
@@ -454,9 +445,8 @@ int main() {
         glfwPollEvents();
     }
 
-
-    sSurface.reset();
-    sContext.reset();
+    //sSurface.reset();
+    //sContext.reset();
     glfwTerminate();
     return 0;
 }
