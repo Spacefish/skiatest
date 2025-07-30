@@ -21,8 +21,20 @@
 sk_sp<GrDirectContext> sContext = nullptr;
 sk_sp<SkSurface> sSurface = nullptr;
 
+VkDevice device;
+
+VkQueue graphicsQueue;
+
+VkSwapchainKHR swapChain;
+uint32_t swapchainImageCount = 0;
+std::vector<VkImage> swapChainImages;
 
 void draw() {
+    uint32_t imageIndex;
+    vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+
+    printf("Acquired swapchain image %d\n", imageIndex);
+
     SkCanvas* canvas = sSurface->getCanvas();
     canvas->clear(SK_ColorBLUE);  // Fill blue
     sContext->flush(sSurface.get());
@@ -31,6 +43,20 @@ void draw() {
     SkFILEWStream out("out.png");
     sk_sp<SkData> png = SkPngEncoder::Encode(sContext.get(), img.get(), {});
     out.write(png->data(), png->size());
+
+    // Present the swapchain image
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 0; // No semaphores to wait on
+    presentInfo.pWaitSemaphores = nullptr;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &swapChain;
+    presentInfo.pImageIndices = &imageIndex; // Use the first image
+    presentInfo.pResults = nullptr; // No results to return
+    VkResult result = vkQueuePresentKHR(graphicsQueue, &presentInfo);
+    if (result != VK_SUCCESS) {
+        fprintf(stderr, "Failed to present swapchain image: %d\n", result);
+    }
 }
 
 int main() {
@@ -188,7 +214,6 @@ int main() {
         }
     }
 
-    VkQueue graphicsQueue;
     VkDeviceQueueCreateInfo queueCreateInfo{};
     queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queueCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
@@ -199,7 +224,6 @@ int main() {
     ///
     // Logical Device
     //
-    VkDevice device;
     VkDeviceCreateInfo deviceCreateInfo = {};
     deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceCreateInfo.queueCreateInfoCount = 1;
@@ -326,10 +350,17 @@ int main() {
     swapchainCreateInfo.clipped = VK_TRUE;
     swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE; // No old swapchain
 
-    VkSwapchainKHR swapchain;
-    if (vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapchain) != VK_SUCCESS) {
+    if (vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapChain) != VK_SUCCESS) {
         fprintf(stderr, "Failed to create swapchain\n");
         return -1;
+    }
+
+    vkGetSwapchainImagesKHR(device, swapChain, &swapchainImageCount, nullptr);
+    swapChainImages.resize(swapchainImageCount);
+    vkGetSwapchainImagesKHR(device, swapChain, &swapchainImageCount, swapChainImages.data());
+
+    for(const auto& image : swapChainImages) {
+        printf("Swapchain image: %p\n", (void*)image);
     }
 
     while (!glfwWindowShouldClose(window)) {
