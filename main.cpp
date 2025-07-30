@@ -26,7 +26,10 @@ sk_sp<SkSurface> sSurface = nullptr;
 
 VkDevice device;
 
+int graphicsQueueFamilyIndex = -1;
 VkQueue graphicsQueue;
+
+VkCommandPool commandPool;
 
 VkSwapchainKHR swapChain;
 uint32_t swapchainImageCount = 0;
@@ -34,13 +37,17 @@ std::vector<VkImage> swapChainImages;
 
 void draw() {
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+    VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+
+    if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
+        printf("Failed to acquire swapchain image: %d\n", acquire_result);
+        return;
+    }
+    else {
+        printf("Acquired swapchain image %d successfully\n", imageIndex);
+    }
 
     printf("Acquired swapchain image %d\n", imageIndex);
-
-    GrVkImageInfo vkImageInfo{};
-
-    GrBackendRenderTarget renderTarget = GrBackendRenderTargets::MakeVk(640, 480, vkImageInfo);
 
     SkCanvas* canvas = sSurface->getCanvas();
     canvas->clear(SK_ColorBLUE);  // Fill blue
@@ -212,7 +219,6 @@ int main() {
     std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
 
-    int graphicsQueueFamilyIndex = -1;
     for (uint32_t i = 0; i < queueFamilyCount; ++i) {
         printf("Queue family %d: count = %d, flags = %u\n", i, queueFamilies[i].queueCount, queueFamilies[i].queueFlags);
         if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
@@ -313,9 +319,23 @@ int main() {
     
     
     // offline rendering
-    SkImageInfo imageInfo = SkImageInfo::Make(640, 480, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
-    sSurface = SkSurfaces::RenderTarget(sContext.get(), skgpu::Budgeted::kYes, imageInfo);
+    //SkImageInfo imageInfo = SkImageInfo::Make(640, 480, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+    //sSurface = SkSurfaces::RenderTarget(sContext.get(), skgpu::Budgeted::kYes, imageInfo);
 
+
+    // Create command pool
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+
+    /*
+    if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create command pool\n");
+        return -1;
+    }
+    printf("Command pool created successfully\n");
+    */
 
     // CREATE SWAPCHAIN
     // VK_PRESENT_MODE_IMMEDIATE_KHR
@@ -330,8 +350,8 @@ int main() {
         vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, availableFormats.data());
     }
     for(const auto& format : availableFormats) {
-        if(format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-            printf("Found supported surface format: VK_FORMAT_B8G8R8A8_SRGB ColorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR\n");
+        if(format.format == VK_FORMAT_R8G8B8A8_UNORM && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            printf("Found supported surface format: VK_FORMAT_R8G8B8A8_UNORM ColorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR\n");
             surfaceFormat = format;
             break;
         }
@@ -342,20 +362,26 @@ int main() {
     }
 
     // create swapchain
-    VkSwapchainCreateInfoKHR swapchainCreateInfo{};
-    swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    swapchainCreateInfo.surface = surface;
-    swapchainCreateInfo.minImageCount = 2;
-    swapchainCreateInfo.imageFormat = surfaceFormat.format;
-    swapchainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
-    swapchainCreateInfo.imageExtent = {640, 480};
-    swapchainCreateInfo.imageArrayLayers = 1;
-    swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR; // Use FIFO
-    swapchainCreateInfo.clipped = VK_TRUE;
-    swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE; // No old swapchain
+    VkSwapchainCreateInfoKHR swapchainCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .pNext = nullptr,
+        .flags = 0,
+        .surface = surface,
+        .minImageCount = 2, // Double buffering
+        .imageFormat = surfaceFormat.format,
+        .imageColorSpace = surfaceFormat.colorSpace,
+        .imageExtent = VkExtent2D{ .width = 640, .height = 480}, // Set the size of the swapchain images
+        .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE, // Single queue family
+        .queueFamilyIndexCount = 0, // because of exclude sharing mode
+        .pQueueFamilyIndices = nullptr,
+        .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, // No transformation
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, // Opaque composite alpha
+        .presentMode = VK_PRESENT_MODE_FIFO_KHR, // FIFO present
+        .clipped = VK_FALSE, // Clipped rendering
+        .oldSwapchain = VK_NULL_HANDLE // No old swapchain
+    };
 
     if (vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapChain) != VK_SUCCESS) {
         fprintf(stderr, "Failed to create swapchain\n");
@@ -368,7 +394,53 @@ int main() {
 
     for(const auto& image : swapChainImages) {
         printf("Swapchain image: %p\n", (void*)image);
+
+        
+        // https://chromium.googlesource.com/external/github.com/flutter/engine/+/refs/heads/flutter-3.11-candidate.12/vulkan/vulkan_swapchain.cc
+        
+        GrVkImageInfo vkImageInfo{
+            .fImage = image,
+            .fImageTiling = VK_IMAGE_TILING_OPTIMAL,
+            .fImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .fFormat = surfaceFormat.format,
+            .fImageUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            .fSampleCount = 1,
+            .fLevelCount = 1,
+            .fSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        };
+
+        GrBackendRenderTarget renderTarget = GrBackendRenderTargets::MakeVk(640, 480, vkImageInfo);
+        if(renderTarget.isValid() == false) {
+            printf("Failed to create GrBackendRenderTarget from VkImage\n");
+            return -1;
+        }
+        printf("Width: %d, Height: %d, Sample Count: %d, Stencil Bits: %d\n",
+               renderTarget.width(), renderTarget.height(), renderTarget.sampleCnt(), renderTarget.stencilBits());
+
+        SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
+
+        sSurface = SkSurfaces::WrapBackendRenderTarget(
+            sContext.get(),
+            renderTarget,
+            GrSurfaceOrigin::kTopLeft_GrSurfaceOrigin,
+            SkColorType::kRGBA_8888_SkColorType,
+            SkColorSpace::MakeSRGB(),
+            &props
+        );
+        if (!sSurface.get()) {
+            printf("Failed to create Skia surface for render target\n");
+            return -1;
+        }
     }
+
+    draw();
+    glfwPollEvents();
+    draw();
+    glfwPollEvents();
+    draw();
+    glfwPollEvents();
+
+    return 0;
 
     while (!glfwWindowShouldClose(window)) {
         draw();
