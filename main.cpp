@@ -8,7 +8,10 @@
 #include "include/core/SkSurface.h"
 #include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/gpu/ganesh/SkSurfaceGanesh.h"
+#include "include/gpu/ganesh/GrBackendSurface.h"
+#include "include/gpu/ganesh/vk/GrVkBackendSurface.h"
 #include "include/gpu/ganesh/vk/GrVkDirectContext.h"
+#include "include/gpu/ganesh/vk/GrVkTypes.h"
 #include "include/gpu/vk/VulkanBackendContext.h"
 #include "include/gpu/vk/VulkanExtensions.h"
 #include "include/gpu/vk/VulkanPreferredFeatures.h"
@@ -35,14 +38,18 @@ void draw() {
 
     printf("Acquired swapchain image %d\n", imageIndex);
 
+    GrVkImageInfo vkImageInfo{};
+
+    GrBackendRenderTarget renderTarget = GrBackendRenderTargets::MakeVk(640, 480, vkImageInfo);
+
     SkCanvas* canvas = sSurface->getCanvas();
     canvas->clear(SK_ColorBLUE);  // Fill blue
     sContext->flush(sSurface.get());
     sContext->submit();  // Submit the drawing commands
-    sk_sp<SkImage> img(sSurface->makeImageSnapshot());
-    SkFILEWStream out("out.png");
-    sk_sp<SkData> png = SkPngEncoder::Encode(sContext.get(), img.get(), {});
-    out.write(png->data(), png->size());
+    // sk_sp<SkImage> img(sSurface->makeImageSnapshot());
+    // SkFILEWStream out("out.png");
+    // sk_sp<SkData> png = SkPngEncoder::Encode(sContext.get(), img.get(), {});
+    //out.write(png->data(), png->size());
 
     // Present the swapchain image
     VkPresentInfoKHR presentInfo{};
