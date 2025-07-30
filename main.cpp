@@ -154,6 +154,15 @@ int main() {
         printf("  %s\n", requiredDeviceExtensions[c]);
     }
 
+    // we need a swapchain for Skia, so we need to ensure VK_KHR_swapchain is enabled
+    // TODO: check if the device supports swapchain
+    requiredDeviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
+    printf("Device Extensions to load:\n");
+    for(int c = 0; c < requiredDeviceExtensions.size(); ++c) {
+        printf("  %s\n", requiredDeviceExtensions[c]);
+    }
+
     ///
     // GRAPHICS QUEUE
     //
@@ -195,7 +204,7 @@ int main() {
     deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceCreateInfo.queueCreateInfoCount = 1;
     deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-    deviceCreateInfo.enabledExtensionCount = 0; // No extensions needed for this example
+    deviceCreateInfo.enabledExtensionCount = requiredDeviceExtensions.size();
     deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
     deviceCreateInfo.pEnabledFeatures = nullptr; // No specific features needed for this example
     deviceCreateInfo.pNext = &features; // Add the features we queried earlier
@@ -236,7 +245,9 @@ int main() {
     }
     printf("Graphics queue created successfully\n");
 
-    // create skia surface from VkSurfaceKHR
+    ///
+    /// Skia Vulkan context
+    ///
     skgpu::VulkanBackendContext backendContext;
     backendContext.fInstance = instance;
     backendContext.fPhysicalDevice = physicalDevice;
@@ -267,11 +278,59 @@ int main() {
     }
     printf("Skia Vulkan context created successfully\n");
 
+    
+    
+    
+    // offline rendering
     SkImageInfo imageInfo = SkImageInfo::Make(640, 480, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     sSurface = SkSurfaces::RenderTarget(sContext.get(), skgpu::Budgeted::kYes, imageInfo);
 
 
-    // sSurface = SkSurfaces::WrapBackendRenderTarget(sContext.get(), renderTarget);
+    // CREATE SWAPCHAIN
+    // VK_PRESENT_MODE_IMMEDIATE_KHR
+
+    // get surface formats
+    uint32_t formatCount;
+    std::vector<VkSurfaceFormatKHR> availableFormats;
+    VkSurfaceFormatKHR surfaceFormat = {};
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+    if (formatCount != 0) {
+        availableFormats.resize(formatCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, availableFormats.data());
+    }
+    for(const auto& format : availableFormats) {
+        if(format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            printf("Found supported surface format: VK_FORMAT_B8G8R8A8_SRGB ColorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR\n");
+            surfaceFormat = format;
+            break;
+        }
+    }
+    if(!surfaceFormat.format) {
+        fprintf(stderr, "No suitable surface format found\n");
+        return -1;
+    }
+
+    // create swapchain
+    VkSwapchainCreateInfoKHR swapchainCreateInfo{};
+    swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapchainCreateInfo.surface = surface;
+    swapchainCreateInfo.minImageCount = 2;
+    swapchainCreateInfo.imageFormat = surfaceFormat.format;
+    swapchainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
+    swapchainCreateInfo.imageExtent = {640, 480};
+    swapchainCreateInfo.imageArrayLayers = 1;
+    swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR; // Use FIFO
+    swapchainCreateInfo.clipped = VK_TRUE;
+    swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE; // No old swapchain
+
+    VkSwapchainKHR swapchain;
+    if (vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapchain) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create swapchain\n");
+        return -1;
+    }
 
     while (!glfwWindowShouldClose(window)) {
         draw();

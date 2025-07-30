@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
-project(SkiaWindow LANGUAGES CXX)
+project(SkiaTest LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find system packages (e.g., GLFW, OpenGL)
-find_package(OpenGL REQUIRED)
+# find_package(OpenGL REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLFW REQUIRED glfw3)
 
@@ -35,7 +35,7 @@ target_link_libraries(app
     PRIVATE
     ${SKIA_OUT_DIR}/libskia.a  # Static Skia lib
     ${GLFW_LIBRARIES}
-    OpenGL::GL
+    #OpenGL::GL
     dl
     pthread
     jpeg
