@@ -38,8 +38,8 @@ std::vector<VkImage> swapChainImages;
 
 std::vector<sk_sp<SkSurface>> skiaSwapChainSurfaces;
 
-double velocity = 0.0;
-double posY = 100.0;
+double velocity[3] = {0, 2, 8}; // Different velocities for each circle
+double posY[3] = {100.0, 150.0, 370.0};
 std::chrono::high_resolution_clock::time_point last_drawcall;
 
 void draw() {
@@ -57,14 +57,24 @@ void draw() {
     SkCanvas* canvas = activeSurface->getCanvas();
     canvas->clear(SK_ColorBLACK);
 
-    SkColor4f color {(float)std::clamp(std::abs(velocity / 10.0), 0.0, 1.0), 0, 0.35, 1};
-    canvas->drawCircle(100, posY, 50, SkPaint(color)); // Draw a circle at (100, posY) with radius 50
+    // draw circles with different colors based on velocity
+    for(int c = 0; c < 3; ++c) {
+        SkPaint paint;
+        paint.setColor({(float)std::clamp(std::abs(velocity[c] / 10.0), 0.0, 1.0), 0, 0.35, 1});
+        paint.setAntiAlias(true);
+        paint.setStyle(SkPaint::kFill_Style);
 
-    posY += velocity; // Update the position of the circle
-    if (posY > 500 || posY < 0) {
-        velocity = -velocity; // Reverse direction if the circle goes out of bounds
+        canvas->drawCircle(100 + c * 150, posY[c], 50, paint); // Draw a circle at (100 + c * 150, posY[c]) with radius 50
     }
-    velocity += 0.1;
+
+    // physics simulation
+    for (int c = 0; c < 3; ++c) {
+        posY[c] += velocity[c]; // Update the position of the circle
+        if (posY[c] > 500 || posY[c] < 0) {
+            velocity[c] = -velocity[c]; // Reverse direction if the circle goes out of bounds
+        }
+        velocity[c] += 0.1; // Increase the speed slightly
+    }
 
     sContext->flush(activeSurface.get());
     // Submit the drawing commands
