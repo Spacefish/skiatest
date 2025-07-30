@@ -35,6 +35,11 @@ VkSwapchainKHR swapChain;
 uint32_t swapchainImageCount = 0;
 std::vector<VkImage> swapChainImages;
 
+std::vector<sk_sp<SkSurface>> skiaSwapChainSurfaces;
+
+double velocity = 0.0;
+double posY = 100.0;
+
 void draw() {
     uint32_t imageIndex;
     VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
@@ -43,15 +48,22 @@ void draw() {
         printf("Failed to acquire swapchain image: %d\n", acquire_result);
         return;
     }
-    else {
-        printf("Acquired swapchain image %d successfully\n", imageIndex);
+
+    sk_sp<SkSurface> activeSurface = skiaSwapChainSurfaces[imageIndex];
+    
+    SkCanvas* canvas = activeSurface->getCanvas();
+    canvas->clear(SK_ColorWHITE); // Clear the canvas with white color
+
+    canvas->drawCircle(100, posY, 50, SkPaint()); // Draw a circle at (100, posY) with radius 50
+
+    posY += velocity; // Update the position of the circle
+    if (posY > 500 || posY < 0) {
+        velocity = -velocity; // Reverse direction if the circle goes out of bounds
     }
+    velocity += 0.1;
 
-    printf("Acquired swapchain image %d\n", imageIndex);
+    sContext->flush(activeSurface.get());
 
-    SkCanvas* canvas = sSurface->getCanvas();
-    canvas->clear(SK_ColorBLUE);  // Fill blue
-    sContext->flush(sSurface.get());
     sContext->submit();  // Submit the drawing commands
     // sk_sp<SkImage> img(sSurface->makeImageSnapshot());
     // SkFILEWStream out("out.png");
@@ -419,7 +431,7 @@ int main() {
 
         SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
 
-        sSurface = SkSurfaces::WrapBackendRenderTarget(
+        sk_sp<SkSurface> skiaSurface = SkSurfaces::WrapBackendRenderTarget(
             sContext.get(),
             renderTarget,
             GrSurfaceOrigin::kTopLeft_GrSurfaceOrigin,
@@ -427,20 +439,16 @@ int main() {
             SkColorSpace::MakeSRGB(),
             &props
         );
-        if (!sSurface.get()) {
+
+        if (!skiaSurface.get()) {
             printf("Failed to create Skia surface for render target\n");
             return -1;
         }
+        else {
+            skiaSwapChainSurfaces.push_back(skiaSurface);
+            printf("Created Skia surface for render target successfully\n");
+        }
     }
-
-    draw();
-    glfwPollEvents();
-    draw();
-    glfwPollEvents();
-    draw();
-    glfwPollEvents();
-
-    return 0;
 
     while (!glfwWindowShouldClose(window)) {
         draw();
