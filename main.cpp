@@ -63,12 +63,8 @@ void draw() {
     velocity += 0.1;
 
     sContext->flush(activeSurface.get());
-
-    sContext->submit();  // Submit the drawing commands
-    // sk_sp<SkImage> img(sSurface->makeImageSnapshot());
-    // SkFILEWStream out("out.png");
-    // sk_sp<SkData> png = SkPngEncoder::Encode(sContext.get(), img.get(), {});
-    //out.write(png->data(), png->size());
+    // Submit the drawing commands
+    sContext->submit();  
 
     // Present the swapchain image
     VkPresentInfoKHR presentInfo{};
