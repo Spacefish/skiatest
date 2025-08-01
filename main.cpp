@@ -45,8 +45,27 @@ std::chrono::high_resolution_clock::time_point last_drawcall = std::chrono::high
 int meterToPixel(double meter) {
     return static_cast<int>(meter * 100.0); // Assuming 1 meter = 100 pixels
 }
+
 double pixelToMeter(int pixel) {
     return static_cast<double>(pixel) / 100.0; // Assuming 1 meter = 100 pixels
+}
+
+std::optional<double> inline solve_quadratic(double a, double b, double c, double max_t) {
+    double disc = b * b - 4 * a * c;
+    if (disc < 0) {
+        return std::nullopt; // No real roots
+    }
+    double sqrt_d = std::sqrt(disc);
+    double denom = 2 * a;
+    double t1 = (-b - sqrt_d) / denom;
+    double t2 = (-b + sqrt_d) / denom;
+    double hit_t = std::numeric_limits<double>::infinity();
+    if (t1 > 0 && t1 <= max_t) hit_t = t1;
+    if (t2 > 0 && t2 <= max_t && t2 < hit_t) hit_t = t2;
+    if (hit_t == std::numeric_limits<double>::infinity()) {
+        return std::nullopt; // No valid positive roots in [0, max_t]
+    }
+    return hit_t;
 }
 
 void draw() {
@@ -77,13 +96,39 @@ void draw() {
         canvas->drawCircle(meterToPixel(1 + c * 1.5), meterToPixel(posY[c]), meterToPixel(0.5), paint); // Draw a circle at (100 + c * 150, posY[c]) with radius 50
     }
 
+    double floor = 5.0; // Floor at y = 5.0
     // physics simulation
     for (int c = 0; c < 3; ++c) {
-        posY[c] += velocity[c] * dt; // Update the position of the circle
-        if ((posY[c] > 5.0 && velocity[c] > 0) || (posY[c] < 0 && velocity[c] < 0)) {
-            velocity[c] = -velocity[c]; // Reverse direction if the circle goes out of bounds
+        double y = posY[c];
+        double v = velocity[c];
+        double a = 9.81;
+        double aa = 0.5 * a;
+        double ymax = floor - 0.5; // adjust bounce point by radius of the circle
+
+        // Check for collision within dt
+        double hit_t = std::numeric_limits<double>::infinity();
+
+        // Collision with bottom (y = ymax, so y(t) = y + v*t + aa*t^2 = ymax)
+        auto t_bottom = solve_quadratic(aa, v, y - ymax, dt);
+        if (t_bottom && *t_bottom < hit_t) hit_t = *t_bottom;
+
+        // Collision with top (y = 0.0, so y(t) = y + v*t + aa*t^2 = 0.0)
+        auto t_top = solve_quadratic(aa, v, y, dt);
+        if (t_top && *t_top < hit_t) hit_t = *t_top;
+
+        if (hit_t <= dt) {
+            // Collision detected: advance to hit time, bounce, then advance remaining time
+            double y_hit = y + v * hit_t + aa * hit_t * hit_t;
+            double v_hit = v + a * hit_t;
+            double v_new = -v_hit; // Elastic bounce
+            double t_rem = dt - hit_t;
+            posY[c] = y_hit + v_new * t_rem + aa * t_rem * t_rem;
+            velocity[c] = v_new + a * t_rem;
+        } else {
+            // No collision: standard parabolic update
+            posY[c] = y + v * dt + aa * dt * dt; // y(t) = y + v*t + 0.5*a*t^2
+            velocity[c] = v + a * dt; // v(t) = v + a*t
         }
-        velocity[c] += 9.81 * dt; // Increase the speed by the gravitational acceleration
     }
 
     sContext->flush(activeSurface.get());
