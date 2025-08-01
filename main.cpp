@@ -38,15 +38,25 @@ std::vector<VkImage> swapChainImages;
 
 std::vector<sk_sp<SkSurface>> skiaSwapChainSurfaces;
 
-double velocity[3] = {0, 2, 8}; // Different velocities for each circle
-double posY[3] = {100.0, 150.0, 370.0};
-std::chrono::high_resolution_clock::time_point last_drawcall;
+double velocity[3] = {0, 0.02, 0.08}; // Different velocities for each circle
+double posY[3] = {1.0, 1.5, 3.7};
+std::chrono::high_resolution_clock::time_point last_drawcall = std::chrono::high_resolution_clock::now();
+
+int meterToPixel(double meter) {
+    return static_cast<int>(meter * 100.0); // Assuming 1 meter = 100 pixels
+}
+double pixelToMeter(int pixel) {
+    return static_cast<double>(pixel) / 100.0; // Assuming 1 meter = 100 pixels
+}
 
 void draw() {
     uint32_t imageIndex;
     VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
 
     auto start = std::chrono::high_resolution_clock::now();
+
+    double dt = std::chrono::duration_cast<std::chrono::microseconds>(start - last_drawcall).count() / 1000000.0;
+    printf("dt: %f\n", dt);
     if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
         printf("Failed to acquire swapchain image: %d\n", acquire_result);
         return;
@@ -60,20 +70,20 @@ void draw() {
     // draw circles with different colors based on velocity
     for(int c = 0; c < 3; ++c) {
         SkPaint paint;
-        paint.setColor({(float)std::clamp(std::abs(velocity[c] / 10.0), 0.0, 1.0), 0, 0.35, 1});
+        paint.setColor({(float)std::clamp(std::abs(velocity[c] / 15.0), 0.0, 1.0), 0, 0.35, 1});
         paint.setAntiAlias(true);
         paint.setStyle(SkPaint::kFill_Style);
 
-        canvas->drawCircle(100 + c * 150, posY[c], 50, paint); // Draw a circle at (100 + c * 150, posY[c]) with radius 50
+        canvas->drawCircle(meterToPixel(1 + c * 1.5), meterToPixel(posY[c]), meterToPixel(0.5), paint); // Draw a circle at (100 + c * 150, posY[c]) with radius 50
     }
 
     // physics simulation
     for (int c = 0; c < 3; ++c) {
-        posY[c] += velocity[c]; // Update the position of the circle
-        if (posY[c] > 500 || posY[c] < 0) {
+        posY[c] += velocity[c] * dt; // Update the position of the circle
+        if ((posY[c] > 5.0 && velocity[c] > 0) || (posY[c] < 0 && velocity[c] < 0)) {
             velocity[c] = -velocity[c]; // Reverse direction if the circle goes out of bounds
         }
-        velocity[c] += 0.1; // Increase the speed slightly
+        velocity[c] += 9.81 * dt; // Increase the speed by the gravitational acceleration
     }
 
     sContext->flush(activeSurface.get());
