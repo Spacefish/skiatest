@@ -1,7 +1,6 @@
 #include <chrono>
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
-#include "Ringbuffer.hpp"
 #include "perfbuffer.hpp"
 #include <cmath>
 #include <algorithm>
