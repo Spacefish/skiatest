@@ -4,8 +4,6 @@
 #include "perfbuffer.hpp"
 #include <cmath>
 #include <algorithm>
-#define SK_VULKAN
-#define SK_GANESH
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkImageInfo.h"
