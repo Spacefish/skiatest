@@ -23,7 +23,18 @@
 #include "include/core/SkSurface.h"
 #include "include/encode/SkPngEncoder.h"
 
+#include "include/gpu/vk/VulkanTypes.h"
+#include "include/gpu/graphite/Context.h"
+#include "include/gpu/graphite/ContextOptions.h"
+#include "include/gpu/graphite/Surface.h"
+#include "include/gpu/graphite/BackendTexture.h"
+#include "include/gpu/graphite/TextureInfo.h"
+#include "include/gpu/graphite/vk/VulkanGraphiteContext.h"
+#include "include/gpu/graphite/vk/VulkanGraphiteTypes.h"
+
+
 sk_sp<GrDirectContext> sContext = nullptr;
+std::unique_ptr<skgpu::graphite::Context> sGraphiteContext = nullptr;
 sk_sp<SkSurface> sSurface = nullptr;
 
 VkDevice device;
@@ -456,6 +467,13 @@ int main() {
     backendContext.fVkExtensions = &vkExtensions;
     backendContext.fProtectedContext = skgpu::Protected(false);
 
+    skgpu::graphite::ContextOptions options;
+    sGraphiteContext = skgpu::graphite::ContextFactory::MakeVulkan(backendContext, options);
+    if (!sGraphiteContext) {
+        fprintf(stderr, "Failed to create Skia Graphite Vulkan context\n");
+        return -1;
+    }
+
     sContext = GrDirectContexts::MakeVulkan(backendContext);
     if (!sContext) {
         fprintf(stderr, "Failed to create Skia Vulkan context\n");
@@ -500,7 +518,7 @@ int main() {
         .imageColorSpace = surfaceFormat.colorSpace,
         .imageExtent = VkExtent2D{ .width = 640, .height = 480}, // Set the size of the swapchain images
         .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .imageUsage = VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE, // Single queue family
         .queueFamilyIndexCount = 0, // because of exclude sharing mode
         .pQueueFamilyIndices = nullptr,
@@ -543,6 +561,65 @@ int main() {
                renderTarget.width(), renderTarget.height(), renderTarget.sampleCnt(), renderTarget.stencilBits());
 
         SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
+
+        std::unique_ptr<skgpu::graphite::Recorder> recorder = sGraphiteContext->makeRecorder();
+        if (!recorder) {
+            printf("Could not make recorder\n");
+            return 1;
+        }
+
+        skgpu::graphite::VulkanTextureInfo vulkanTextureInfo{};
+        //vulkanTextureInfo.fFlags = 0
+        vulkanTextureInfo.fFormat = surfaceFormat.format;
+        vulkanTextureInfo.fSampleCount = 1;
+        vulkanTextureInfo.fImageTiling = VK_IMAGE_TILING_OPTIMAL;
+        vulkanTextureInfo.fImageUsageFlags = VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        vulkanTextureInfo.fSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vulkanTextureInfo.fFlags = VK_SAMPLE_COUNT_1_BIT;
+
+        // auto textureInfo = skgpu::graphite::TextureInfos::MakeVulkan(vulkanTextureInfo);
+
+
+        /*
+        SK_API BackendTexture MakeVulkan(SkISize dimensions,
+                                 const VulkanTextureInfo&,
+                                 VkImageLayout,
+                                 uint32_t queueFamilyIndex,
+                                 VkImage,
+                                 VulkanAlloc);
+        */
+
+        auto backendTexture = skgpu::graphite::BackendTextures::MakeVulkan(
+            SkISize::Make(640, 480),
+            vulkanTextureInfo,
+            VkImageLayout::VK_IMAGE_LAYOUT_UNDEFINED,
+            (uint32_t)graphicsQueueFamilyIndex,
+            image,
+            skgpu::VulkanAlloc{} // No VulkanAlloc needed for this example
+        );
+        if(!backendTexture.isValid()) {
+            printf("Failed to create BackendTexture from VkImage\n");
+            return -1;
+        }
+
+        sk_sp<SkSurface> skiaSurfaceGf = SkSurfaces::WrapBackendTexture(
+            recorder.get(),
+            backendTexture,
+            SkColorType::kRGBA_8888_SkColorType,
+            SkColorSpace::MakeSRGB(),
+            &props,
+            nullptr,
+            nullptr,
+            ""
+        );
+        if (!skiaSurfaceGf.get()) {
+            printf("Failed to create Skia surface for Graphite backend texture\n");
+            return -1;
+        }
+        else {
+            //skiaSwapChainSurfaces.push_back(skiaSurfaceGf);
+            //printf("Created Skia surface for Graphite backend texture successfully\n");
+        }
 
         sk_sp<SkSurface> skiaSurface = SkSurfaces::WrapBackendRenderTarget(
             sContext.get(),
