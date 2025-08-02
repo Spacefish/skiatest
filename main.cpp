@@ -1,6 +1,10 @@
 #include <chrono>
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
+#include "Ringbuffer.hpp"
+#include "perfbuffer.hpp"
+#include <cmath>
+#include <algorithm>
 #define SK_VULKAN
 #define SK_GANESH
 #include "include/core/SkCanvas.h"
@@ -40,7 +44,12 @@ std::vector<sk_sp<SkSurface>> skiaSwapChainSurfaces;
 
 double velocity[3] = {0, 0.02, 0.08}; // Different velocities for each circle
 double posY[3] = {1.0, 1.5, 3.7};
-std::chrono::high_resolution_clock::time_point last_drawcall = std::chrono::high_resolution_clock::now();
+auto last_drawcall = std::chrono::high_resolution_clock::now();
+
+#define PERF_BUFFER_SIZE 256
+
+perf::PerfBuffer frameTimesDraw(PERF_BUFFER_SIZE);
+perf::PerfBuffer frameTimesPhysics(PERF_BUFFER_SIZE);
 
 int meterToPixel(double meter) {
     return static_cast<int>(meter * 100.0); // Assuming 1 meter = 100 pixels
@@ -68,33 +77,13 @@ std::optional<double> inline solve_quadratic(double a, double b, double c, doubl
     return hit_t;
 }
 
-void draw() {
-    uint32_t imageIndex;
-    VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+auto last_physicsframe = std::chrono::high_resolution_clock::now();
 
-    auto start = std::chrono::high_resolution_clock::now();
-
-    double dt = std::chrono::duration_cast<std::chrono::microseconds>(start - last_drawcall).count() / 1000000.0;
-    printf("dt: %f\n", dt);
-    if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
-        printf("Failed to acquire swapchain image: %d\n", acquire_result);
-        return;
-    }
-
-    sk_sp<SkSurface> activeSurface = skiaSwapChainSurfaces[imageIndex];
-    
-    SkCanvas* canvas = activeSurface->getCanvas();
-    canvas->clear(SK_ColorBLACK);
-
-    // draw circles with different colors based on velocity
-    for(int c = 0; c < 3; ++c) {
-        SkPaint paint;
-        paint.setColor({(float)std::clamp(std::abs(velocity[c] / 15.0), 0.0, 1.0), 0, 0.35, 1});
-        paint.setAntiAlias(true);
-        paint.setStyle(SkPaint::kFill_Style);
-
-        canvas->drawCircle(meterToPixel(1 + c * 1.5), meterToPixel(posY[c]), meterToPixel(0.5), paint); // Draw a circle at (100 + c * 150, posY[c]) with radius 50
-    }
+void physics() {
+    // Calculate time since last physics frame (delta time)
+    auto now = std::chrono::high_resolution_clock::now();
+    double dt = std::chrono::duration_cast<std::chrono::microseconds>(now - last_physicsframe).count() / 1000000.0;
+    last_physicsframe = now;
 
     double floor = 5.0; // Floor at y = 5.0
     // physics simulation
@@ -131,13 +120,94 @@ void draw() {
         }
     }
 
+    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - last_physicsframe).count();
+    frameTimesPhysics.addSample(elapsed);
+}
+
+uint32_t map(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_min, uint32_t out_max) {
+    // Avoid division by zero
+    if (in_max == in_min) {
+        return out_min; // Return out_min as a safe default
+    }
+    
+    // Compute using 64-bit arithmetic to prevent overflow
+    uint64_t numerator = (uint64_t)(x - in_min) * (out_max - out_min);
+    uint64_t denominator = in_max - in_min;
+    return out_min + (uint32_t)(numerator / denominator);
+}
+
+void draw() {
+    uint32_t imageIndex;
+    VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+
+    auto start = std::chrono::high_resolution_clock::now();
+    if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
+        printf("Failed to acquire swapchain image: %d\n", acquire_result);
+        return;
+    }
+
+    sk_sp<SkSurface> activeSurface = skiaSwapChainSurfaces[imageIndex];
+    
+    SkCanvas* canvas = activeSurface->getCanvas();
+    canvas->clear(SK_ColorBLACK);
+
+    // draw circles with different colors based on velocity
+    for(int c = 0; c < 3; ++c) {
+        SkPaint paint;
+        float scaledVelocity = std::abs(velocity[c] / 15.0f);
+        paint.setColor({std::clamp(scaledVelocity, 0.0f, 1.0f), 0.0f, 0.35f, 1.0f});
+        paint.setAntiAlias(true);
+        paint.setStyle(SkPaint::kFill_Style);
+
+        canvas->drawCircle(meterToPixel(1 + c * 1.5), meterToPixel(posY[c]), meterToPixel(0.5), paint); // Draw a circle at (100 + c * 150, posY[c]) with radius 50
+    }
+
+    // PERF GRAPH
+
+    int perfGraphHeight = 75;
+    int perfGraphWidth = PERF_BUFFER_SIZE;
+    // draw box
+    SkPaint perfGraphPaint;
+    perfGraphPaint.setColor(SK_ColorWHITE);
+    perfGraphPaint.setStyle(SkPaint::kStroke_Style);
+    perfGraphPaint.setStrokeWidth(2);
+    canvas->drawRect(SkRect::MakeXYWH(10, 10, perfGraphWidth, perfGraphHeight), perfGraphPaint);
+
+    auto frameTimesDrawSamples = frameTimesDraw.getSamples();
+    auto frameTimesPhysicsSamples = frameTimesPhysics.getSamples();
+
+    auto minFrameTime = *std::min_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
+    auto maxFrameTime = *std::max_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
+
+    auto minPhysicsTime = *std::min_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
+    auto maxPhysicsTime = *std::max_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
+
+    SkPaint linePaint;
+    linePaint.setStyle(SkPaint::kStroke_Style);
+    linePaint.setStrokeWidth(1);
+
+    // perf graph height
+    for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
+        auto yFt = map(frameTimesDrawSamples[c], minFrameTime, maxFrameTime, 0, perfGraphHeight);
+        auto yPhy = map(frameTimesPhysicsSamples[c], minPhysicsTime, maxPhysicsTime, 0, perfGraphHeight);
+        int x = c;
+        
+        linePaint.setColor(SK_ColorGREEN);
+        SkPoint point = SkPoint::Make(x + 10, 75 - yFt + 10);
+        canvas->drawPoint(point, linePaint);
+
+        point = SkPoint::Make(x + 10, 75 - yPhy + 10);
+        linePaint.setColor(SK_ColorMAGENTA);
+        canvas->drawPoint(point, linePaint);
+    }
+
     sContext->flush(activeSurface.get());
     // Submit the drawing commands
     sContext->submit();  
 
     auto stop = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count();
-    printf("Frame render time: %ld μs\n", duration);
+    frameTimesDraw.addSample(duration);
 
     // Present the swapchain image
     VkPresentInfoKHR presentInfo{};
@@ -152,11 +222,6 @@ void draw() {
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to present swapchain image: %d\n", result);
     }
-    // time diff since last draw call
-    auto now = std::chrono::high_resolution_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_drawcall).count();
-    // printf("Draw call took %ld ms\n", elapsed);
-    last_drawcall = now;
 }
 
 int main() {
@@ -503,6 +568,7 @@ int main() {
 
     last_drawcall = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(window)) {
+        physics();
         draw();
         
         // not relevant for Vulkan as we need to use our own swapchain via vkQueuePresentKHR
