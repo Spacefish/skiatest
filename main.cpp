@@ -33,9 +33,7 @@
 #include "include/gpu/graphite/vk/VulkanGraphiteTypes.h"
 
 
-sk_sp<GrDirectContext> sContext = nullptr;
 std::unique_ptr<skgpu::graphite::Context> sGraphiteContext = nullptr;
-sk_sp<SkSurface> sSurface = nullptr;
 
 VkDevice device;
 
@@ -48,7 +46,6 @@ VkSwapchainKHR swapChain;
 uint32_t swapchainImageCount = 0;
 std::vector<VkImage> swapChainImages;
 
-std::vector<std::unique_ptr<skgpu::graphite::Recorder>> skiaRecorders;
 std::vector<sk_sp<SkSurface>> skiaSwapChainSurfaces;
 
 double velocity[3] = {0, 0.02, 0.08}; // Different velocities for each circle
@@ -175,45 +172,44 @@ void draw() {
     }
 
     // PERF GRAPH
+    if(false) {
+        int perfGraphHeight = 75;
+        int perfGraphWidth = PERF_BUFFER_SIZE;
+        // draw box
+        SkPaint perfGraphPaint;
+        perfGraphPaint.setColor(SK_ColorWHITE);
+        perfGraphPaint.setStyle(SkPaint::kStroke_Style);
+        perfGraphPaint.setStrokeWidth(2);
+        canvas->drawRect(SkRect::MakeXYWH(10, 10, perfGraphWidth, perfGraphHeight), perfGraphPaint);
 
-    int perfGraphHeight = 75;
-    int perfGraphWidth = PERF_BUFFER_SIZE;
-    // draw box
-    SkPaint perfGraphPaint;
-    perfGraphPaint.setColor(SK_ColorWHITE);
-    perfGraphPaint.setStyle(SkPaint::kStroke_Style);
-    perfGraphPaint.setStrokeWidth(2);
-    canvas->drawRect(SkRect::MakeXYWH(10, 10, perfGraphWidth, perfGraphHeight), perfGraphPaint);
+        auto frameTimesDrawSamples = frameTimesDraw.getSamples();
+        auto frameTimesPhysicsSamples = frameTimesPhysics.getSamples();
 
-    auto frameTimesDrawSamples = frameTimesDraw.getSamples();
-    auto frameTimesPhysicsSamples = frameTimesPhysics.getSamples();
+        auto minFrameTime = *std::min_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
+        auto maxFrameTime = *std::max_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
 
-    auto minFrameTime = *std::min_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
-    auto maxFrameTime = *std::max_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
+        auto minPhysicsTime = *std::min_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
+        auto maxPhysicsTime = *std::max_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
 
-    auto minPhysicsTime = *std::min_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
-    auto maxPhysicsTime = *std::max_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
+        SkPaint linePaint;
+        linePaint.setStyle(SkPaint::kStroke_Style);
+        linePaint.setStrokeWidth(1);
 
-    SkPaint linePaint;
-    linePaint.setStyle(SkPaint::kStroke_Style);
-    linePaint.setStrokeWidth(1);
+        // perf graph height
+        for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
+            auto yFt = map(frameTimesDrawSamples[c], minFrameTime, maxFrameTime, 0, perfGraphHeight);
+            auto yPhy = map(frameTimesPhysicsSamples[c], minPhysicsTime, maxPhysicsTime, 0, perfGraphHeight);
+            int x = c;
+            
+            linePaint.setColor(SK_ColorGREEN);
+            SkPoint point = SkPoint::Make(x + 10, 75 - yFt + 10);
+            canvas->drawPoint(point, linePaint);
 
-    // perf graph height
-    for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
-        auto yFt = map(frameTimesDrawSamples[c], minFrameTime, maxFrameTime, 0, perfGraphHeight);
-        auto yPhy = map(frameTimesPhysicsSamples[c], minPhysicsTime, maxPhysicsTime, 0, perfGraphHeight);
-        int x = c;
-        
-        linePaint.setColor(SK_ColorGREEN);
-        SkPoint point = SkPoint::Make(x + 10, 75 - yFt + 10);
-        canvas->drawPoint(point, linePaint);
-
-        point = SkPoint::Make(x + 10, 75 - yPhy + 10);
-        linePaint.setColor(SK_ColorMAGENTA);
-        canvas->drawPoint(point, linePaint);
+            point = SkPoint::Make(x + 10, 75 - yPhy + 10);
+            linePaint.setColor(SK_ColorMAGENTA);
+            canvas->drawPoint(point, linePaint);
+        }
     }
-
-    
 
     std::unique_ptr<skgpu::graphite::Recording> recording = rec->snap();
     sGraphiteContext->insertRecording({recording.get()});
@@ -488,20 +484,6 @@ int main() {
         return 1;
     }
 
-    /*
-    sContext = GrDirectContexts::MakeVulkan(backendContext);
-    if (!sContext) {
-        fprintf(stderr, "Failed to create Skia Vulkan context\n");
-        return -1;
-    }
-    printf("Skia Vulkan context created successfully\n");
-    */
-
-    
-    
-    // CREATE SWAPCHAIN
-    // VK_PRESENT_MODE_IMMEDIATE_KHR
-
     // get surface formats
     uint32_t formatCount;
     std::vector<VkSurfaceFormatKHR> availableFormats;
@@ -557,27 +539,6 @@ int main() {
     for(const auto& image : swapChainImages) {
         printf("Swapchain image: %p\n", (void*)image);
         
-        /*
-        GrVkImageInfo vkImageInfo{
-            .fImage = image,
-            .fImageTiling = VK_IMAGE_TILING_OPTIMAL,
-            .fImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .fFormat = surfaceFormat.format,
-            .fImageUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-            .fSampleCount = 1,
-            .fLevelCount = 1,
-            .fSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        };
-
-        GrBackendRenderTarget renderTarget = GrBackendRenderTargets::MakeVk(640, 480, vkImageInfo);
-        if(renderTarget.isValid() == false) {
-            printf("Failed to create GrBackendRenderTarget from VkImage\n");
-            return -1;
-        }
-        printf("Width: %d, Height: %d, Sample Count: %d, Stencil Bits: %d\n",
-               renderTarget.width(), renderTarget.height(), renderTarget.sampleCnt(), renderTarget.stencilBits());
-        */
-
         SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
 
         skgpu::graphite::VulkanTextureInfo vulkanTextureInfo{};
@@ -588,18 +549,6 @@ int main() {
         vulkanTextureInfo.fImageUsageFlags = VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         vulkanTextureInfo.fSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         vulkanTextureInfo.fFlags = VK_SAMPLE_COUNT_1_BIT;
-
-        // auto textureInfo = skgpu::graphite::TextureInfos::MakeVulkan(vulkanTextureInfo);
-
-
-        /*
-        SK_API BackendTexture MakeVulkan(SkISize dimensions,
-                                 const VulkanTextureInfo&,
-                                 VkImageLayout,
-                                 uint32_t queueFamilyIndex,
-                                 VkImage,
-                                 VulkanAlloc);
-        */
 
         auto backendTexture = skgpu::graphite::BackendTextures::MakeVulkan(
             SkISize::Make(640, 480),
@@ -632,26 +581,6 @@ int main() {
             skiaSwapChainSurfaces.push_back(skiaSurface);
             printf("Created Skia surface for Graphite backend texture successfully\n");
         }
-
-        /*
-        sk_sp<SkSurface> skiaSurface = SkSurfaces::WrapBackendRenderTarget(
-            sContext.get(),
-            renderTarget,
-            GrSurfaceOrigin::kTopLeft_GrSurfaceOrigin,
-            SkColorType::kRGBA_8888_SkColorType,
-            SkColorSpace::MakeSRGB(),
-            &props
-        );
-
-        if (!skiaSurface.get()) {
-            printf("Failed to create Skia surface for render target\n");
-            return -1;
-        }
-        else {
-            skiaSwapChainSurfaces.push_back(skiaSurface);
-            printf("Created Skia surface for render target successfully\n");
-        }
-        */
     }
 
     last_drawcall = std::chrono::high_resolution_clock::now();
