@@ -142,6 +142,31 @@ uint32_t inline map(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_m
     return out_min + (uint32_t)(numerator / denominator);
 }
 
+SkPaint ballPaint[3];
+SkPaint whitePerfBoxPaint;
+SkPaint greenPerfGraphPaint;
+SkPaint magentaPerfGraphPaint;
+
+void initializePaints() {
+    for (int c = 0; c < 3; ++c) {
+        ballPaint[c].setColor({0.0f, 0.0f, 0.35f, 1.0f}); // Default color
+        ballPaint[c].setAntiAlias(true);
+        ballPaint[c].setStyle(SkPaint::kFill_Style);
+    }
+
+    whitePerfBoxPaint.setColor(SK_ColorWHITE);
+    whitePerfBoxPaint.setStyle(SkPaint::kStroke_Style);
+    whitePerfBoxPaint.setStrokeWidth(2);
+
+    greenPerfGraphPaint.setColor(SK_ColorGREEN);
+    greenPerfGraphPaint.setStyle(SkPaint::kStroke_Style);
+    greenPerfGraphPaint.setStrokeWidth(1);
+    
+    magentaPerfGraphPaint.setColor(SK_ColorMAGENTA);
+    magentaPerfGraphPaint.setStyle(SkPaint::kStroke_Style);
+    magentaPerfGraphPaint.setStrokeWidth(1);
+}
+
 void draw() {
     uint32_t imageIndex;
     VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
@@ -153,22 +178,18 @@ void draw() {
     }
 
     sk_sp<SkSurface> activeSurface = skiaSwapChainSurfaces[imageIndex];
-    // auto recorder = skiaRecorders[imageIndex].get(); // Get the associated Recorder
 
-    auto rec = activeSurface->recorder();
+    auto recorder = activeSurface->recorder();
     
     SkCanvas* canvas = activeSurface->getCanvas();
     canvas->clear(SK_ColorBLACK);
 
     // draw circles with different colors based on velocity
     for(int c = 0; c < 3; ++c) {
-        SkPaint paint;
         float scaledVelocity = std::abs(velocity[c] / 15.0f);
-        paint.setColor({std::clamp(scaledVelocity, 0.0f, 1.0f), 0.0f, 0.35f, 1.0f});
-        paint.setAntiAlias(true);
-        paint.setStyle(SkPaint::kFill_Style);
+        ballPaint[c].setColor({std::clamp(scaledVelocity, 0.0f, 1.0f), 0.0f, 0.35f, 1.0f});
 
-        canvas->drawCircle(meterToPixel(1 + c * 1.5), meterToPixel(posY[c]), meterToPixel(0.5), paint); // Draw a circle at (100 + c * 150, posY[c]) with radius 50
+        canvas->drawCircle(meterToPixel(1 + c * 1.5), meterToPixel(posY[c]), meterToPixel(0.5), ballPaint[c]); // Draw a circle at (100 + c * 150, posY[c]) with radius 50
     }
 
     // PERF GRAPH
@@ -176,42 +197,35 @@ void draw() {
         int perfGraphHeight = 75;
         int perfGraphWidth = PERF_BUFFER_SIZE;
         // draw box
-        SkPaint perfGraphPaint;
-        perfGraphPaint.setColor(SK_ColorWHITE);
-        perfGraphPaint.setStyle(SkPaint::kStroke_Style);
-        perfGraphPaint.setStrokeWidth(2);
-        canvas->drawRect(SkRect::MakeXYWH(10, 10, perfGraphWidth, perfGraphHeight), perfGraphPaint);
+        canvas->drawRect(SkRect::MakeXYWH(10, 10, perfGraphWidth, perfGraphHeight), whitePerfBoxPaint);
 
-        SkPaint linePaint;
-        linePaint.setStyle(SkPaint::kStroke_Style);
-        linePaint.setStrokeWidth(1);
-        // linePaint.setAntiAlias(false); // Disable anti-aliasing to reduce CPU/GPU load
-
-        // Draw first polyline (green)
-        linePaint.setColor(SK_ColorGREEN);
         SkPath drawPath;
         for (int c = 0; c < PERF_BUFFER_SIZE; ++c) {
             auto yFt = map(frameTimesDraw.getOrderedSample(c), frameTimesDraw.getMin(), frameTimesDraw.getMax(), 0, perfGraphHeight);
             SkPoint point = SkPoint::Make(c + 10, 75 - yFt + 10);
             c == 0 ? drawPath.moveTo(point) : drawPath.lineTo(point);
         }
-        canvas->drawPath(drawPath, linePaint);
+        canvas->drawPath(drawPath, greenPerfGraphPaint);
 
         // Draw second polyline (magenta)
-        linePaint.setColor(SK_ColorMAGENTA);
         SkPath physicsPath;
         for (int c = 0; c < PERF_BUFFER_SIZE; ++c) {
             auto yPhy = map(frameTimesPhysics.getOrderedSample(c), frameTimesPhysics.getMin(), frameTimesPhysics.getMax(), 0, perfGraphHeight);
             SkPoint point = SkPoint::Make(c + 10, 75 - yPhy + 10);
             c == 0 ? physicsPath.moveTo(point) : physicsPath.lineTo(point);
         }
-        canvas->drawPath(physicsPath, linePaint);
+        canvas->drawPath(physicsPath, magentaPerfGraphPaint);
     }
 
-    std::unique_ptr<skgpu::graphite::Recording> recording = rec->snap();
-    sGraphiteContext->insertRecording({recording.get()});
-    // Submit the drawing commands
+    // get the drawing commands from the recorder and insert them into the Graphite context
+    // std::unique_ptr<skgpu::graphite::Recording> recording = ;
 
+    sGraphiteContext->insertRecording({
+        .fRecording = recorder->snap().get(),
+        .fTargetSurface = activeSurface.get()
+    });
+
+    // Submit the drawing commands
     sGraphiteContext->submit();
 
     auto stop = std::chrono::high_resolution_clock::now();
@@ -580,6 +594,7 @@ int main() {
         }
     }
 
+    initializePaints();
     last_drawcall = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(window)) {
         physics();
