@@ -196,26 +196,26 @@ void draw() {
         linePaint.setStrokeWidth(1);
 
         linePaint.setColor(SK_ColorGREEN);
+        SkPoint drawPoints[PERF_BUFFER_SIZE];
         for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
             auto yFt = map(frameTimesDrawSamples[c], minFrameTime, maxFrameTime, 0, perfGraphHeight);
-            int x = c;
-            SkPoint point = SkPoint::Make(x + 10, 75 - yFt + 10);
-            //canvas->drawPoint(point, linePaint);
+            drawPoints[c] = SkPoint::Make(c + 10, 75 - yFt + 10);
         }
+        canvas->drawPoints(SkCanvas::kLines_PointMode, SkSpan<SkPoint>(drawPoints, PERF_BUFFER_SIZE), linePaint);
 
         linePaint.setColor(SK_ColorMAGENTA);
+        SkPoint physicsPoints[PERF_BUFFER_SIZE];
         for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
             auto yPhy = map(frameTimesPhysicsSamples[c], minPhysicsTime, maxPhysicsTime, 0, perfGraphHeight);
-            int x = c;
-            SkPoint point = SkPoint::Make(x + 10, 75 - yPhy + 10);
-            //canvas->drawPoint(point, linePaint);
+            physicsPoints[c] = SkPoint::Make(c + 10, 75 - yPhy + 10);
         }
+        canvas->drawPoints(SkCanvas::kLines_PointMode, SkSpan<SkPoint>(physicsPoints, PERF_BUFFER_SIZE), linePaint);
     }
 
     std::unique_ptr<skgpu::graphite::Recording> recording = rec->snap();
     sGraphiteContext->insertRecording({recording.get()});
     // Submit the drawing commands
-    // sContext->submit();
+    
     sGraphiteContext->submit();
 
     auto stop = std::chrono::high_resolution_clock::now();
