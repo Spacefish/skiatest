@@ -48,6 +48,7 @@ VkSwapchainKHR swapChain;
 uint32_t swapchainImageCount = 0;
 std::vector<VkImage> swapChainImages;
 
+std::vector<std::unique_ptr<skgpu::graphite::Recorder>> skiaRecorders;
 std::vector<sk_sp<SkSurface>> skiaSwapChainSurfaces;
 
 double velocity[3] = {0, 0.02, 0.08}; // Different velocities for each circle
@@ -155,6 +156,9 @@ void draw() {
     }
 
     sk_sp<SkSurface> activeSurface = skiaSwapChainSurfaces[imageIndex];
+    // auto recorder = skiaRecorders[imageIndex].get(); // Get the associated Recorder
+
+    auto rec = activeSurface->recorder();
     
     SkCanvas* canvas = activeSurface->getCanvas();
     canvas->clear(SK_ColorBLACK);
@@ -209,9 +213,13 @@ void draw() {
         canvas->drawPoint(point, linePaint);
     }
 
-    sContext->flush(activeSurface.get());
+    
+
+    std::unique_ptr<skgpu::graphite::Recording> recording = rec->snap();
+    sGraphiteContext->insertRecording({recording.get()});
     // Submit the drawing commands
-    sContext->submit();  
+    // sContext->submit();
+    sGraphiteContext->submit();
 
     auto stop = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count();
@@ -474,12 +482,20 @@ int main() {
         return -1;
     }
 
+    auto recorder = sGraphiteContext->makeRecorder().release();
+    if (!recorder) {
+        printf("Could not make recorder\n");
+        return 1;
+    }
+
+    /*
     sContext = GrDirectContexts::MakeVulkan(backendContext);
     if (!sContext) {
         fprintf(stderr, "Failed to create Skia Vulkan context\n");
         return -1;
     }
     printf("Skia Vulkan context created successfully\n");
+    */
 
     
     
@@ -541,6 +557,7 @@ int main() {
     for(const auto& image : swapChainImages) {
         printf("Swapchain image: %p\n", (void*)image);
         
+        /*
         GrVkImageInfo vkImageInfo{
             .fImage = image,
             .fImageTiling = VK_IMAGE_TILING_OPTIMAL,
@@ -559,14 +576,9 @@ int main() {
         }
         printf("Width: %d, Height: %d, Sample Count: %d, Stencil Bits: %d\n",
                renderTarget.width(), renderTarget.height(), renderTarget.sampleCnt(), renderTarget.stencilBits());
+        */
 
         SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
-
-        std::unique_ptr<skgpu::graphite::Recorder> recorder = sGraphiteContext->makeRecorder();
-        if (!recorder) {
-            printf("Could not make recorder\n");
-            return 1;
-        }
 
         skgpu::graphite::VulkanTextureInfo vulkanTextureInfo{};
         //vulkanTextureInfo.fFlags = 0
@@ -602,8 +614,8 @@ int main() {
             return -1;
         }
 
-        sk_sp<SkSurface> skiaSurfaceGf = SkSurfaces::WrapBackendTexture(
-            recorder.get(),
+        sk_sp<SkSurface> skiaSurface = SkSurfaces::WrapBackendTexture(
+            recorder,
             backendTexture,
             SkColorType::kRGBA_8888_SkColorType,
             SkColorSpace::MakeSRGB(),
@@ -612,15 +624,16 @@ int main() {
             nullptr,
             ""
         );
-        if (!skiaSurfaceGf.get()) {
+        if (!skiaSurface.get()) {
             printf("Failed to create Skia surface for Graphite backend texture\n");
             return -1;
         }
         else {
-            //skiaSwapChainSurfaces.push_back(skiaSurfaceGf);
-            //printf("Created Skia surface for Graphite backend texture successfully\n");
+            skiaSwapChainSurfaces.push_back(skiaSurface);
+            printf("Created Skia surface for Graphite backend texture successfully\n");
         }
 
+        /*
         sk_sp<SkSurface> skiaSurface = SkSurfaces::WrapBackendRenderTarget(
             sContext.get(),
             renderTarget,
@@ -638,6 +651,7 @@ int main() {
             skiaSwapChainSurfaces.push_back(skiaSurface);
             printf("Created Skia surface for render target successfully\n");
         }
+        */
     }
 
     last_drawcall = std::chrono::high_resolution_clock::now();
