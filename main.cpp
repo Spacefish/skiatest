@@ -4,26 +4,13 @@
 #include "perfbuffer.hpp"
 #include <cmath>
 #include <algorithm>
-#include "include/core/SkCanvas.h"
-#include "include/core/SkColorSpace.h"
-#include "include/core/SkImageInfo.h"
-#include "include/core/SkSurface.h"
-#include "include/gpu/ganesh/GrDirectContext.h"
-#include "include/gpu/ganesh/SkSurfaceGanesh.h"
-#include "include/gpu/ganesh/GrBackendSurface.h"
-#include "include/gpu/ganesh/vk/GrVkBackendSurface.h"
-#include "include/gpu/ganesh/vk/GrVkDirectContext.h"
-#include "include/gpu/ganesh/vk/GrVkTypes.h"
+
+#include "include/gpu/vk/VulkanTypes.h"
 #include "include/gpu/vk/VulkanBackendContext.h"
 #include "include/gpu/vk/VulkanExtensions.h"
 #include "include/gpu/vk/VulkanPreferredFeatures.h"
-#include "include/core/SkData.h"
-#include "include/core/SkImage.h"
-#include "include/core/SkStream.h"
-#include "include/core/SkSurface.h"
 #include "include/encode/SkPngEncoder.h"
 
-#include "include/gpu/vk/VulkanTypes.h"
 #include "include/gpu/graphite/Context.h"
 #include "include/gpu/graphite/ContextOptions.h"
 #include "include/gpu/graphite/Surface.h"
@@ -31,6 +18,16 @@
 #include "include/gpu/graphite/TextureInfo.h"
 #include "include/gpu/graphite/vk/VulkanGraphiteContext.h"
 #include "include/gpu/graphite/vk/VulkanGraphiteTypes.h"
+
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkData.h"
+#include "include/core/SkStream.h"
 
 
 std::unique_ptr<skgpu::graphite::Context> sGraphiteContext = nullptr;
@@ -52,7 +49,7 @@ double velocity[3] = {0, 0.02, 0.08}; // Different velocities for each circle
 double posY[3] = {1.0, 1.5, 3.7};
 auto last_drawcall = std::chrono::high_resolution_clock::now();
 
-#define PERF_BUFFER_SIZE 256
+#define PERF_BUFFER_SIZE 512
 
 perf::PerfBuffer frameTimesDraw(PERF_BUFFER_SIZE);
 perf::PerfBuffer frameTimesPhysics(PERF_BUFFER_SIZE);

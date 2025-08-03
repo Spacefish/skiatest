@@ -4,8 +4,10 @@ project(SkiaTest LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find system packages (e.g., GLFW, OpenGL)
-# find_package(OpenGL REQUIRED)
+set(CMAKE_CXX_FLAGS "-O3 -Wall -Wextra -march=x86-64-v3")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra")
+
+# Find system packages
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLFW REQUIRED glfw3)
 
