@@ -182,16 +182,6 @@ void draw() {
         perfGraphPaint.setStrokeWidth(2);
         canvas->drawRect(SkRect::MakeXYWH(10, 10, perfGraphWidth, perfGraphHeight), perfGraphPaint);
 
-        auto frameTimesDrawSamples = frameTimesDraw.getSamples();
-        auto frameTimesPhysicsSamples = frameTimesPhysics.getSamples();
-
-        // Consider caching these min/max values if samples don't change every frame
-        // e.g., update only when new samples are added to frameTimesDraw/Physics
-        auto minFrameTime = *std::min_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
-        auto maxFrameTime = *std::max_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
-        auto minPhysicsTime = *std::min_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
-        auto maxPhysicsTime = *std::max_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
-
         SkPaint linePaint;
         linePaint.setStyle(SkPaint::kStroke_Style);
         linePaint.setStrokeWidth(1);
@@ -201,7 +191,7 @@ void draw() {
         linePaint.setColor(SK_ColorGREEN);
         SkPath drawPath;
         for (int c = 0; c < PERF_BUFFER_SIZE; ++c) {
-            auto yFt = map(frameTimesDrawSamples[c], minFrameTime, maxFrameTime, 0, perfGraphHeight);
+            auto yFt = map(frameTimesDraw.getOrderedSample(c), frameTimesDraw.getMin(), frameTimesDraw.getMax(), 0, perfGraphHeight);
             SkPoint point = SkPoint::Make(c + 10, 75 - yFt + 10);
             c == 0 ? drawPath.moveTo(point) : drawPath.lineTo(point);
         }
@@ -211,7 +201,7 @@ void draw() {
         linePaint.setColor(SK_ColorMAGENTA);
         SkPath physicsPath;
         for (int c = 0; c < PERF_BUFFER_SIZE; ++c) {
-            auto yPhy = map(frameTimesPhysicsSamples[c], minPhysicsTime, maxPhysicsTime, 0, perfGraphHeight);
+            auto yPhy = map(frameTimesPhysics.getOrderedSample(c), frameTimesPhysics.getMin(), frameTimesPhysics.getMax(), 0, perfGraphHeight);
             SkPoint point = SkPoint::Make(c + 10, 75 - yPhy + 10);
             c == 0 ? physicsPath.moveTo(point) : physicsPath.lineTo(point);
         }
