@@ -130,7 +130,7 @@ void physics() {
     frameTimesPhysics.addSample(elapsed);
 }
 
-uint32_t map(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_min, uint32_t out_max) {
+uint32_t inline map(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_min, uint32_t out_max) {
     // Avoid division by zero
     if (in_max == in_min) {
         return out_min; // Return out_min as a safe default
@@ -172,7 +172,7 @@ void draw() {
     }
 
     // PERF GRAPH
-    if(false) {
+    if(true) {
         int perfGraphHeight = 75;
         int perfGraphWidth = PERF_BUFFER_SIZE;
         // draw box
@@ -195,19 +195,20 @@ void draw() {
         linePaint.setStyle(SkPaint::kStroke_Style);
         linePaint.setStrokeWidth(1);
 
-        // perf graph height
+        linePaint.setColor(SK_ColorGREEN);
         for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
             auto yFt = map(frameTimesDrawSamples[c], minFrameTime, maxFrameTime, 0, perfGraphHeight);
+            int x = c;
+            SkPoint point = SkPoint::Make(x + 10, 75 - yFt + 10);
+            //canvas->drawPoint(point, linePaint);
+        }
+
+        linePaint.setColor(SK_ColorMAGENTA);
+        for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
             auto yPhy = map(frameTimesPhysicsSamples[c], minPhysicsTime, maxPhysicsTime, 0, perfGraphHeight);
             int x = c;
-            
-            linePaint.setColor(SK_ColorGREEN);
-            SkPoint point = SkPoint::Make(x + 10, 75 - yFt + 10);
-            canvas->drawPoint(point, linePaint);
-
-            point = SkPoint::Make(x + 10, 75 - yPhy + 10);
-            linePaint.setColor(SK_ColorMAGENTA);
-            canvas->drawPoint(point, linePaint);
+            SkPoint point = SkPoint::Make(x + 10, 75 - yPhy + 10);
+            //canvas->drawPoint(point, linePaint);
         }
     }
 
