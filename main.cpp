@@ -4,6 +4,7 @@
 #include "perfbuffer.hpp"
 #include <cmath>
 #include <algorithm>
+#include <thread>
 
 #include "include/gpu/vk/VulkanTypes.h"
 #include "include/gpu/vk/VulkanBackendContext.h"
@@ -530,7 +531,7 @@ int main() {
         .pQueueFamilyIndices = nullptr,
         .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, // No transformation
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, // Opaque composite alpha
-        .presentMode = VK_PRESENT_MODE_FIFO_KHR, // FIFO present
+        .presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR, // Relaxed FIFO present
         .clipped = VK_FALSE, // Clipped rendering
         .oldSwapchain = VK_NULL_HANDLE // No old swapchain
     };
@@ -593,14 +594,23 @@ int main() {
 
     initializePaints();
     last_drawcall = std::chrono::high_resolution_clock::now();
+    
+    // start new thread for rendering
+    std::atomic<bool> shouldRun(true);
+    std::thread renderThread([&]() {
+        while (shouldRun) {
+            physics();
+            draw();
+        }
+    });
+
     while (!glfwWindowShouldClose(window)) {
-        physics();
-        draw();
-        
-        // not relevant for Vulkan as we need to use our own swapchain via vkQueuePresentKHR
-        // glfwSwapBuffers(window);
-        glfwPollEvents();
+        glfwWaitEvents();
     }
+
+    // Cleanup
+    shouldRun = false;
+    renderThread.join();
 
     //sSurface.reset();
     //sContext.reset();
