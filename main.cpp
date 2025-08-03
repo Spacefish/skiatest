@@ -294,7 +294,7 @@ int main() {
 
     // print requiredInstanceExtensions to see what Skia adds
     printf("Skia required Instance extensions:\n");
-    for (int c = glfwExtensionCount; c < requiredInstanceExtensions.size(); ++c) {
+    for (size_t c = glfwExtensionCount; c < requiredInstanceExtensions.size(); ++c) {
         printf("  %s\n", requiredInstanceExtensions[c]);
     }
     
@@ -361,7 +361,7 @@ int main() {
     skiaFeatures.addFeaturesToEnable(requiredDeviceExtensions, features);
 
     printf("Skia required Device extensions:\n");
-    for (int c = 0; c < requiredDeviceExtensions.size(); ++c) {
+    for (size_t c = 0; c < requiredDeviceExtensions.size(); ++c) {
         printf("  %s\n", requiredDeviceExtensions[c]);
     }
 
@@ -370,7 +370,7 @@ int main() {
     requiredDeviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
     printf("Device Extensions to load:\n");
-    for(int c = 0; c < requiredDeviceExtensions.size(); ++c) {
+    for(size_t c = 0; c < requiredDeviceExtensions.size(); ++c) {
         printf("  %s\n", requiredDeviceExtensions[c]);
     }
 
