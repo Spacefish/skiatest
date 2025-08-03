@@ -185,37 +185,43 @@ void draw() {
         auto frameTimesDrawSamples = frameTimesDraw.getSamples();
         auto frameTimesPhysicsSamples = frameTimesPhysics.getSamples();
 
+        // Consider caching these min/max values if samples don't change every frame
+        // e.g., update only when new samples are added to frameTimesDraw/Physics
         auto minFrameTime = *std::min_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
         auto maxFrameTime = *std::max_element(frameTimesDrawSamples.begin(), frameTimesDrawSamples.end());
-
         auto minPhysicsTime = *std::min_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
         auto maxPhysicsTime = *std::max_element(frameTimesPhysicsSamples.begin(), frameTimesPhysicsSamples.end());
 
         SkPaint linePaint;
         linePaint.setStyle(SkPaint::kStroke_Style);
         linePaint.setStrokeWidth(1);
+        // linePaint.setAntiAlias(false); // Disable anti-aliasing to reduce CPU/GPU load
 
+        // Draw first polyline (green)
         linePaint.setColor(SK_ColorGREEN);
-        SkPoint drawPoints[PERF_BUFFER_SIZE];
-        for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
+        SkPath drawPath;
+        for (int c = 0; c < PERF_BUFFER_SIZE; ++c) {
             auto yFt = map(frameTimesDrawSamples[c], minFrameTime, maxFrameTime, 0, perfGraphHeight);
-            drawPoints[c] = SkPoint::Make(c + 10, 75 - yFt + 10);
+            SkPoint point = SkPoint::Make(c + 10, 75 - yFt + 10);
+            c == 0 ? drawPath.moveTo(point) : drawPath.lineTo(point);
         }
-        canvas->drawPoints(SkCanvas::kLines_PointMode, SkSpan<SkPoint>(drawPoints, PERF_BUFFER_SIZE), linePaint);
+        canvas->drawPath(drawPath, linePaint);
 
+        // Draw second polyline (magenta)
         linePaint.setColor(SK_ColorMAGENTA);
-        SkPoint physicsPoints[PERF_BUFFER_SIZE];
-        for(int c = 0; c < PERF_BUFFER_SIZE; ++c) {
+        SkPath physicsPath;
+        for (int c = 0; c < PERF_BUFFER_SIZE; ++c) {
             auto yPhy = map(frameTimesPhysicsSamples[c], minPhysicsTime, maxPhysicsTime, 0, perfGraphHeight);
-            physicsPoints[c] = SkPoint::Make(c + 10, 75 - yPhy + 10);
+            SkPoint point = SkPoint::Make(c + 10, 75 - yPhy + 10);
+            c == 0 ? physicsPath.moveTo(point) : physicsPath.lineTo(point);
         }
-        canvas->drawPoints(SkCanvas::kLines_PointMode, SkSpan<SkPoint>(physicsPoints, PERF_BUFFER_SIZE), linePaint);
+        canvas->drawPath(physicsPath, linePaint);
     }
 
     std::unique_ptr<skgpu::graphite::Recording> recording = rec->snap();
     sGraphiteContext->insertRecording({recording.get()});
     // Submit the drawing commands
-    
+
     sGraphiteContext->submit();
 
     auto stop = std::chrono::high_resolution_clock::now();
