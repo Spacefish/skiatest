@@ -46,6 +46,9 @@ std::vector<VkImage> swapChainImages;
 
 std::vector<sk_sp<SkSurface>> skiaSwapChainSurfaces;
 
+VkSemaphore imageAvailableSemaphore, renderFinishedSemaphore;
+VkFence frameFence;
+
 double velocity[3] = {0, 0.02, 0.08}; // Different velocities for each circle
 double posY[3] = {1.0, 1.5, 3.7};
 auto last_drawcall = std::chrono::high_resolution_clock::now();
@@ -166,14 +169,19 @@ void initializePaints() {
 }
 
 void draw() {
-    uint32_t imageIndex;
-    VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+    if (vkGetFenceStatus(device, frameFence) != VK_SUCCESS) {
+        vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
+    }
+    vkResetFences(device, 1, &frameFence);
 
-    auto start = std::chrono::high_resolution_clock::now();
+    uint32_t imageIndex;
+    VkResult acquire_result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
     if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
         printf("Failed to acquire swapchain image: %d\n", acquire_result);
         return;
     }
+
+    auto start = std::chrono::high_resolution_clock::now();
 
     sk_sp<SkSurface> activeSurface = skiaSwapChainSurfaces[imageIndex];
 
@@ -226,6 +234,21 @@ void draw() {
     // Submit the drawing commands
     sGraphiteContext->submit();
 
+    // notifiy semaphore after skia has finished drawing
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    VkSubmitInfo submitInfo{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext = nullptr,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &imageAvailableSemaphore,
+        .pWaitDstStageMask = waitStages,
+        .commandBufferCount = 0, // Skia manages command buffers internally
+        .pCommandBuffers = nullptr,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &renderFinishedSemaphore
+    };
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence);
+
     auto stop = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count();
     frameTimesDraw.addSample(duration);
@@ -233,8 +256,8 @@ void draw() {
     // Present the swapchain image
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.waitSemaphoreCount = 0; // No semaphores to wait on
-    presentInfo.pWaitSemaphores = nullptr;
+    presentInfo.waitSemaphoreCount = 1; // No semaphores to wait on
+    presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &swapChain;
     presentInfo.pImageIndices = &imageIndex; // Use the first image
@@ -531,7 +554,7 @@ int main() {
         .pQueueFamilyIndices = nullptr,
         .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, // No transformation
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, // Opaque composite alpha
-        .presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR, // Relaxed FIFO present
+        .presentMode = VK_PRESENT_MODE_FIFO_KHR, // FIFO present mode
         .clipped = VK_FALSE, // Clipped rendering
         .oldSwapchain = VK_NULL_HANDLE // No old swapchain
     };
@@ -540,6 +563,13 @@ int main() {
         fprintf(stderr, "Failed to create swapchain\n");
         return -1;
     }
+
+    // create semaphores and fence
+    VkSemaphoreCreateInfo sci{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = nullptr, .flags = 0};
+    vkCreateSemaphore(device, &sci, nullptr, &imageAvailableSemaphore);
+    vkCreateSemaphore(device, &sci, nullptr, &renderFinishedSemaphore);
+    VkFenceCreateInfo fci{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
+    vkCreateFence(device, &fci, nullptr, &frameFence);
 
     vkGetSwapchainImagesKHR(device, swapChain, &swapchainImageCount, nullptr);
     swapChainImages.resize(swapchainImageCount);
