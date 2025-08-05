@@ -10,6 +10,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra")
 # Find system packages
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLFW REQUIRED glfw3)
+pkg_check_modules(OPENVR REQUIRED openvr)
 
 # Point to your built Skia (adjust path if Skia is elsewhere)
 #set(SKIA_DIR "${CMAKE_SOURCE_DIR}/skia/skia")
@@ -48,6 +49,7 @@ target_link_libraries(app
     webp
     webpmux
     webpdemux
+    openvr_api
 )
 
 # For runtime shared libs if any

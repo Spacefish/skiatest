@@ -30,9 +30,14 @@
 #include "include/core/SkData.h"
 #include "include/core/SkStream.h"
 
+#include "openvr/openvr.h"
+
 
 std::unique_ptr<skgpu::graphite::Context> sGraphiteContext = nullptr;
 
+VkInstance instance;
+
+VkPhysicalDevice physicalDevice;
 VkDevice device;
 
 int graphicsQueueFamilyIndex = -1;
@@ -82,6 +87,34 @@ std::optional<double> inline solve_quadratic(double a, double b, double c, doubl
         return std::nullopt; // No valid positive roots in [0, max_t]
     }
     return hit_t;
+}
+
+vr::VROverlayHandle_t overlayHandle;
+
+int InitVR() {
+    vr::EVRInitError err;
+    vr::IVRSystem* vrSystem;
+
+    vrSystem = vr::VR_Init(&err, vr::VRApplication_Overlay);
+    if (err != vr::VRInitError_None) {
+        fprintf(stderr, "Failed to initialize OpenVR: %s\n", vr::VR_GetVRInitErrorAsSymbol(err));
+        return -1;
+    }
+
+    vr::VROverlay()->CreateOverlay("SkiaOverlay", "Skia Vulkan Test Overlay", &overlayHandle);
+    vr::VROverlay()->SetOverlayFromFile(overlayHandle, "/home/spacy/Pictures/967be01be57d9f1ba8525bc6abfe60debdaf3a3a043bd25f07608cbe4e5f31b7.png");
+    vr::VROverlay()->SetOverlayWidthInMeters(overlayHandle, 3);
+    vr::VROverlay()->ShowOverlay(overlayHandle);
+
+    vr::HmdMatrix34_t transform = {
+		1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 1.0f,
+		0.0f, 0.0f, 1.0f, -2.0f
+	};
+    
+    vr::VROverlay()->SetOverlayTransformAbsolute(overlayHandle, vr::TrackingUniverseStanding, &transform);
+
+    return 0;
 }
 
 auto last_physicsframe = std::chrono::high_resolution_clock::now();
@@ -249,6 +282,36 @@ void draw() {
     };
     vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence);
 
+
+    /*
+    uint64_t m_nImage; // VkImage
+	VkDevice_T *m_pDevice;
+	VkPhysicalDevice_T *m_pPhysicalDevice;
+	VkInstance_T *m_pInstance;
+	VkQueue_T *m_pQueue;
+	uint32_t m_nQueueFamilyIndex;
+	uint32_t m_nWidth, m_nHeight, m_nFormat, m_nSampleCount;
+    */
+
+    vr::VRVulkanTextureData_t vulkanTextureData = {
+        .m_nImage = (uint64_t)(swapChainImages[imageIndex]),
+        .m_pDevice = device,
+        .m_pPhysicalDevice = physicalDevice,
+        .m_pInstance = instance,
+        .m_pQueue = graphicsQueue,
+        .m_nQueueFamilyIndex = (uint32_t)graphicsQueueFamilyIndex,
+        .m_nWidth = 640, // Assuming 1920x1080 resolution
+        .m_nHeight = 480,
+        .m_nFormat = VK_FORMAT_R8G8B8A8_UNORM,
+        .m_nSampleCount = 1 // No multisampling
+    };
+
+    vr::Texture_t swapChainTexture = {
+        .handle = &vulkanTextureData,
+        .eType = vr::TextureType_Vulkan,
+        .eColorSpace = vr::ColorSpace_Gamma
+    };    
+
     auto stop = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count();
     frameTimesDraw.addSample(duration);
@@ -266,6 +329,8 @@ void draw() {
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to present swapchain image: %d\n", result);
     }
+
+    vr::VROverlay()->SetOverlayTexture(overlayHandle, &swapChainTexture);
 }
 
 int main() {
@@ -279,6 +344,12 @@ int main() {
         return -1;
     }
 
+    // OPENVR INIT
+    if(InitVR() != 0) {
+        fprintf(stderr, "Failed to initialize OpenVR\n");
+        return -1;
+    }
+    
 
     ///
     /// Get supported Vulkan extensions
@@ -323,7 +394,6 @@ int main() {
     }
     
     // vkinstance
-    VkInstance instance;
     VkApplicationInfo appInfo = {};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "Skia Vulkan Test";
@@ -347,7 +417,6 @@ int main() {
     ///
     // PHYSICAL DEVICE
     //
-    VkPhysicalDevice physicalDevice;
     uint32_t deviceCount = 0;
     vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
     if (deviceCount == 0) {
@@ -392,6 +461,27 @@ int main() {
     // we need a swapchain for Skia, so we need to ensure VK_KHR_swapchain is enabled
     // TODO: check if the device supports swapchain
     requiredDeviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    
+    // for OpenVR
+    uint32_t nBufferSize = vr::VRCompositor()->GetVulkanDeviceExtensionsRequired( ( VkPhysicalDevice_T * ) physicalDevice, nullptr, 0 );
+    if ( nBufferSize > 0 )
+	{
+        std::vector<char> buffer(nBufferSize);
+        vr::VRCompositor()->GetVulkanDeviceExtensionsRequired( ( VkPhysicalDevice_T * ) physicalDevice, buffer.data(), nBufferSize );
+        printf("OpenVR requires Vulkan device extensions: %s\n", buffer.data());
+        
+        // split buffer by space character and add to requiredDeviceExtensions
+        std::string bufferStr(buffer.begin(), buffer.end());
+        printf("OpenVR required device extensions 2: %s\n", bufferStr.c_str());
+        std::istringstream iss(bufferStr);
+        std::string extension;
+
+        while ( getline( iss, extension, ' ' ) ) {
+            char* extCStr = new char[extension.size() + 1];
+            std::strcpy(extCStr, extension.c_str());
+            requiredDeviceExtensions.push_back(extCStr);
+        }
+    }
 
     printf("Device Extensions to load:\n");
     for(size_t c = 0; c < requiredDeviceExtensions.size(); ++c) {
@@ -548,7 +638,7 @@ int main() {
         .imageColorSpace = surfaceFormat.colorSpace,
         .imageExtent = VkExtent2D{ .width = 640, .height = 480}, // Set the size of the swapchain images
         .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .imageUsage = VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE, // Single queue family
         .queueFamilyIndexCount = 0, // because of exclude sharing mode
         .pQueueFamilyIndices = nullptr,
